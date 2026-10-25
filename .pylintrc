@@ -1,0 +1,3 @@
+[DESIGN]
+max-bool-expr = 7
+max-line-length = 80

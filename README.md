@@ -1,8 +1,8 @@
 <p align="center">
     <picture>
-        <source media="(prefers-color-scheme: dark)" srcset="assets/banner-dark.png">
-        <source media="(prefers-color-scheme: light)" srcset="assets/banner-light.png">
-        <img alt="Project Banner" src="assets/banner-light.png" width="400px">
+        <source media="(prefers-color-scheme: dark)" srcset="assets/banner/dark.png">
+        <source media="(prefers-color-scheme: light)" srcset="assets/banner/light.png">
+        <img alt="Project Banner" src="assets/banner/light.png" width="400px">
     </picture>
 </p>
 
@@ -10,11 +10,26 @@
 
 A pure Python project using a Flask backend to host a given project folder, automatically connecting the server using tailscale. The client is then able to connect to this server by the IDE, designed in Python's Tkinter, to access the files, folders, read files, write files, create directories, and, in essense, use the server folder as if it were on the client's computer.
 
+Each client is treated as a "user" stored inside a MySQL database. Changes by one user is reflected to other users on the same project connection.
+
+<table>
+    <tr>
+        <td align="center">
+            <img src="assets/demo-connecting.png" width="400" alt="Connection demo"><br>
+            <sub><b>Figure 1:</b> Connecting to a server</sub>
+        </td>
+        <td align="center">
+            <img src="assets/demo-project.png" width="400" alt="A project file"><br>
+            <sub><b>Figure 2:</b> Accessing a file (server.py)</sub>
+        </td>
+    </tr>
+</table>
+
 # Setup
 
 ```bash
 git clone https://github.com/farismuhammad17/CodeServer.py
-cd codeserver
+cd CodeServer.py
 pip install .
 ```
 
@@ -23,7 +38,7 @@ pip install .
 The following command will start up the server and request for the project directory if one is not provided in the path. The program also automatically starts up tailscale, unless the `--no-tailscale` argument is passed.
 
 ```bash
-python src/server.py <optional path>  <optional --no-tailscale>
+python src/server.py <optional path> <optional --no-tailscale>
 ```
 
 ## Using the IDE
@@ -36,24 +51,24 @@ python src/ide.py
 
 # Technologies
 
+* [Tailscale](https://tailscale.com/): Bridging server to WAN
 * [Tkinter](https://docs.python.org/3/library/tkinter.html): Client GUI
 * [Flask](https://flask.palletsprojects.com/en/stable/): Server backend
+* [Flask-SocketIO](https://flask-socketio.readthedocs.io/en/latest/): Server Websocket engine
 * [Requests](https://requests.readthedocs.io/en/latest/): API calling and parsing
-* [MySQL](https://dev.mysql.com/doc/)
+* [python-socketio](https://python-socketio.readthedocs.io/en/stable/): Client WebSocket engine
+* [MySQL](https://dev.mysql.com/doc/): User tracking
+* [mysql-connector-python](https://pypi.org/project/mysql-connector-python/): The database driver managing persistent client tracking.
+* [python-dotenv](https://pypi.org/project/python-dotenv/): Secure server configuration environment.
 
-# To do
+# Todo
 
-*The current program is purposefully written unsafe and terribly.*
-
-* Security vulnerabilities: Invalid file accesses
-    * SOLUTION: Verify all actions do NOT fall outside the `proj` folder chosen by the server when it is launched. If the access is invalid, return the appropriate error message and error code to the requesting client.
-    * If left undone, a client can go through the server's files willy-nilly, even as far as to access personal files, passwords, histories, etc. Even if the client application has no option for such, a client can use cURL, or even just a browser to do so.
-* Exceptions
-    * Server exceptions would crash the entire structure. If the server stops, the whole program stops. Catching exceptions and returing appropriate error messages and error codes to the user is the default solution.
-* Unsafe client shell
-    * The client can execute literally anything. Sometimes a problem considering the shell was designed to be an interface to the entire computer.
-* No use of MySQL
-* Pretty bland IDE
+* IDE was written mostly by LLMs. Should fix any minor code inconveniences.
+* Use the IDE terminal as client-server logs for communication ease.
+    * Connection phase
+    * User joining/leaving
+    * etc.
+* A password request when connecting to a server. Also requires that the server password be put inside the `.env` file.
 
 # Acknowledgments
 

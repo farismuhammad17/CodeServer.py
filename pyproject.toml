@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "codeserver"
-version = "0.1.0"
+version = "0.1.1"
 description = "A lightweight remote IDE with a Flask server backend, MySQL synchronization, and a custom Tkinter client over Tailscale."
 readme = "README.md"
 requires-python = ">=3.8"
@@ -15,9 +15,14 @@ authors = [
     { name = "Mrinalika Rajan" }
 ]
 dependencies = [
-    "Flask>=3.0.0",
+    "python-dotenv>=1.0.0",
+    "mysql-connector-python>=8.0.0",
     "Requests>=2.31.0",
-    "mysql-connector-python>=8.0.0"
+    "Flask>=3.0.0",
+    "Flask-SocketIO",
+    "python-socketio",
+    "simple-websocket",
+    "websocket-client>=1.6.0",
 ]
 
 [project.urls]
@@ -25,6 +30,3 @@ Homepage = "https://github.com/farismuhammad17/CodeServer.py"
 Repository = "https://github.com/farismuhammad17/CodeServer.py.git"
 Documentation = "https://github.com/farismuhammad17/CodeServer.py#readme"
 Issues = "https://github.com/farismuhammad17/CodeServer.py/issues"
-
-[tool.pylint.format]
-max-line-length = 80
