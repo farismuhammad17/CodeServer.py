@@ -49,18 +49,6 @@ Once the server URL is provided, it functions as a standard IDE on the client co
 python src/ide.py
 ```
 
-# Technologies
-
-* [Tailscale](https://tailscale.com/): Bridging server to WAN
-* [Tkinter](https://docs.python.org/3/library/tkinter.html): Client GUI
-* [Flask](https://flask.palletsprojects.com/en/stable/): Server backend
-* [Flask-SocketIO](https://flask-socketio.readthedocs.io/en/latest/): Server Websocket engine
-* [Requests](https://requests.readthedocs.io/en/latest/): API calling and parsing
-* [python-socketio](https://python-socketio.readthedocs.io/en/stable/): Client WebSocket engine
-* [MySQL](https://dev.mysql.com/doc/): User tracking
-* [mysql-connector-python](https://pypi.org/project/mysql-connector-python/): The database driver managing persistent client tracking.
-* [python-dotenv](https://pypi.org/project/python-dotenv/): Secure server configuration environment.
-
 # Todo
 
 * IDE was written mostly by LLMs. Should fix any minor code inconveniences.

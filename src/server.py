@@ -21,9 +21,6 @@ import os
 import subprocess
 import sys
 
-import tkinter as tk
-from tkinter import filedialog
-
 import mysql.connector as sql
 
 from flask import Flask, Response, jsonify, request
@@ -64,6 +61,14 @@ def get_target_folder() -> str:
         str: The path of the selected folder, or None if no folder was
             selected.
     """
+
+    try:
+        import tkinter as tk
+        from tkinter import filedialog
+    except ImportError:
+        print("[!] Tkinter is not found on this machine. Provide path directly.")
+        print("    Syntax: python3 src/server.py /path/to/project")
+        return None
 
     root = tk.Tk()
     root.withdraw()                       # Hides the main empty window
