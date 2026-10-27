@@ -28,6 +28,13 @@ from flask_socketio import SocketIO, emit
 
 from dotenv import load_dotenv
 
+try:
+    import tkinter as tk
+    from tkinter import filedialog
+except ImportError:
+    print("[#] Tkinter not found.")
+    tk = None
+
 load_dotenv()
 
 SUC_OK          = 200   # Default for GET
@@ -44,7 +51,7 @@ DB_CONFIG = {
     'password': os.getenv('DB_PASSWORD'),
     'database': os.getenv('DB_NAME', 'codeserver_db')
 }
-SERVER_PORT = int(os.getenv('SERVER_PORT', 5000))
+SERVER_PORT = int(os.getenv('SERVER_PORT', '5000'))
 
 PROJ = None
 
@@ -62,13 +69,9 @@ def get_target_folder() -> str:
             selected.
     """
 
-    try:
-        import tkinter as tk
-        from tkinter import filedialog
-    except ImportError:
-        print("[!] Tkinter is not found on this machine. Provide path directly.")
-        print("    Syntax: python3 src/server.py /path/to/project")
-        return None
+    if not tk:
+        print("[!] Pass project by CLI (python3 src/server.py path/to/proj)")
+        return ''
 
     root = tk.Tk()
     root.withdraw()                       # Hides the main empty window
@@ -189,10 +192,10 @@ def api_read() -> tuple[Response, int]:
         }), ERR_BAD_REQUEST
 
 @app.route('/files', methods=['GET'])
-def api_list() -> tuple[Response, int]:
+def api_files() -> tuple[Response, int]:
     """
     Retrieves a sorted, recursive list of all files and directories
-    in the project workspace.
+    in the project workspace, with directories listed before files.
 
         GET /files
 
@@ -203,18 +206,52 @@ def api_list() -> tuple[Response, int]:
         ], (int) RESPONSE_CODE)
     """
 
+    ignored = {'.csignore'}
+    ignore_path = os.path.join(PROJ, '.csignore')
+    if os.path.exists(ignore_path) and os.path.isfile(ignore_path):
+        try:
+            with open(ignore_path, 'r', encoding='utf-8') as f:
+                for line in f:
+                    cleaned = line.strip()
+                    if not cleaned or cleaned.startswith('#'):
+                        continue
+                    pattern = cleaned.rstrip('/\\')
+                    if pattern:
+                        ignored.add(pattern)
+        except (OSError, UnicodeDecodeError) as e:
+            print(f"[!] Error on .csignore: {e}")
+
+    dir_list  = []
     file_list = []
+
+    # Helper to check if a name or relative path matches ignore patterns
+    def is_ignored(name: str, current_rel_root: str) -> bool:
+        rel_path = os.path.join(current_rel_root, name).replace('\\', '/')
+        return name in ignored or rel_path in ignored or any(
+            rel_path.startswith(pattern + '/') or rel_path == pattern
+            for pattern in ignored
+        )
 
     for root, dirs, files in os.walk(PROJ):
         rel_root = os.path.relpath(root, PROJ)
         if rel_root == '.':
             rel_root = ''
-        for d in dirs:
-            file_list.append(os.path.join(rel_root, d).replace('\\', '/'))
-        for f in files:
-            file_list.append(os.path.join(rel_root, f).replace('\\', '/'))
 
-    return jsonify(sorted(file_list)), SUC_OK
+        dirs[:] = [d for d in dirs if not is_ignored(d, rel_root)]
+
+        for d in dirs:
+            rel_path = os.path.join(rel_root, d).replace('\\', '/')
+            if is_ignored(d, rel_root):
+                continue
+            dir_list.append(rel_path)
+
+        for f in files:
+            rel_path = os.path.join(rel_root, f).replace('\\', '/')
+            if is_ignored(f, rel_root):
+                continue
+            file_list.append(rel_path)
+
+    return jsonify(sorted(dir_list) + sorted(file_list)), SUC_OK
 
 @app.route('/save', methods=['POST'])
 def api_save() -> tuple[Response, int]:
