@@ -66,6 +66,7 @@ class CodeServerIDE:
 
         self.editor.bind("<BackSpace>", self._on_editor_backspace)
         self.editor.bind("<Delete>", self._on_editor_delete)
+        self.editor.bind("<Return>", self._on_editor_return)
 
     def _configure_styles(self) -> None:
         """
@@ -472,7 +473,8 @@ class CodeServerIDE:
 
     def _apply_remote_edits(self, edits: list) -> None:
         """
-        Applies incoming remote keystrokes, backspaces, or forward deletes to the editor.
+        Applies incoming remote keystrokes, backspaces, forward deletes,
+        or newlines to the editor.
         """
         for edit in edits:
             char = edit.get("keystroke", "")
@@ -495,7 +497,7 @@ class CodeServerIDE:
                     end_idx = f"{row}.{col+1}"
                     self.editor.delete(start_idx, end_idx)
                 else:
-                    # Regular character insertion
+                    # Regular character or newline insertion
                     if char:
                         target_idx = f"{row}.{col}"
                         self.editor.insert(target_idx, char)
@@ -538,6 +540,27 @@ class CodeServerIDE:
                     "row": row,
                     "column": col,
                     "keystroke": "\x7f"  # Standard ASCII code for Delete (DEL)
+                }]
+            }
+            self.sio.emit('send_keystrokes', payload)
+        except Exception:
+            pass
+
+    def _on_editor_return(self, event) -> None:
+        """
+        Emits a newline/return event when the user hits Enter.
+        """
+        if not self.current_file or not self.sio.connected:
+            return
+        try:
+            row, col = map(int, self.editor.index(tk.INSERT).split('.'))
+            payload = {
+                "file": self.current_file,
+                "edits": [{
+                    "file": self.current_file,
+                    "row": row,
+                    "column": col,
+                    "keystroke": "\n"
                 }]
             }
             self.sio.emit('send_keystrokes', payload)

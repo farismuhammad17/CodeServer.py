@@ -52,6 +52,9 @@ python src/ide.py
 # Todo
 
 * IDE was written mostly by LLMs. Should fix any minor code inconveniences.
+* If a user edits a file, and another user not previously viewing the file reads the file, they will not see the reflected changes of the first user.
+    * The server should likely store a dictionary buffer for every file for every keystroke made. When a user opens the file, the keystrokes are sent to this user from the server, and the user processes these changes.
+    * If a user saves a file, the file is saved, and the keystroke buffer on that file should be emptied.
 * Use the IDE terminal as client-server logs for communication ease.
     * Connection phase
     * User joining/leaving
