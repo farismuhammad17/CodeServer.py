@@ -674,9 +674,19 @@ def handle_start_terminal(_data) -> None:
         shell_cmd = f"bash" # macOS terminal relies on strict cwd=PROJ
     else: # Linux / Posix compliant OSs
         if os.path.exists("/usr/bin/bwrap"):
-            print("[#] bwrap not found, defaulting to bash.")
-            shell_cmd = f"bwrap --ro-bind /usr /usr --bind {PROJ} /app --chdir /app --proc /proc --dev /dev bash"
+            shell_cmd = (
+                f"bwrap "
+                f"--ro-bind /usr /usr "
+                f"--ro-bind /lib /lib "
+                f"--ro-bind /lib64 /lib64 "
+                f"--bind {PROJ} /app "
+                f"--chdir /app "
+                f"--proc /proc "
+                f"--dev /dev "
+                f"/bin/bash"
+            )
         else:
+            print("[#] bwrap not found, defaulting to bash.")
             shell_cmd = "bash"
 
     try:
