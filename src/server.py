@@ -20,6 +20,8 @@ limitations under the License.
 import os
 import subprocess
 import sys
+import threading
+import queue
 
 import mysql.connector as sql
 
@@ -54,6 +56,9 @@ DB_CONFIG = {
 SERVER_PORT = int(os.getenv('SERVER_PORT', '5000'))
 
 PROJ = None
+
+# Session processes per SID
+ACTIVE_TERMINALS = {}
 
 app = Flask(__name__)
 socketio = SocketIO(app, cors_allowed_origins="*")
@@ -392,50 +397,6 @@ def api_new_folder() -> tuple[Response, int]:
         "message": f"'{folder}' created"
     }), SUC_CREATED
 
-@app.route('/cmd', methods=['POST'])
-def api_cmd() -> tuple[Response, int]:
-    """
-    Executes a shell command within the project workspace directory
-    and streams the output.
-
-        POST /cmd + payload:
-        {
-            "command": "your_shell_command"
-        }
-
-    Response body:
-        (tuple) (streamed command output, (int) RESPONSE_CODE)
-    """
-
-    data = request.get_json() or {}
-    command = data.get('command')
-
-    if not command:
-        return jsonify({
-            "error": "Missing 'command' in JSON payload"
-        }), ERR_BAD_REQUEST
-
-    def generate():
-        # pylint: disable=consider-using-with
-        process = subprocess.Popen(
-            command,
-            shell=True,
-            cwd=PROJ,
-            stdout=subprocess.PIPE,
-            stderr=subprocess.STDOUT,
-            stdin=subprocess.PIPE,
-            text=True,
-            bufsize=1
-        )
-
-        try:
-            yield from process.stdout
-        finally:
-            process.terminate()
-            process.wait()
-
-    return Response(generate(), mimetype='text/plain'), SUC_OK
-
 @app.route('/users', methods=['GET'])
 def api_users() -> tuple[Response, int]:
     """
@@ -579,6 +540,14 @@ def handle_disconnect() -> None:
     cursor.close()
     conn.close()
 
+    sid = request.sid
+    if sid in ACTIVE_TERMINALS:
+        try:
+            ACTIVE_TERMINALS[sid].terminate()
+        except (OSError, subprocess.SubprocessError):
+            pass
+        del ACTIVE_TERMINALS[sid]
+
     if username:
         print(f"[*] Client disconnected: {username} (SID: {sid})")
         emit('user_left', {"username": username},
@@ -653,6 +622,127 @@ def handle_keystrokes(data) -> None:
     emit('broadcast_keystrokes', data,
         broadcast=True,
         include_self=False)
+
+@socketio.on('start_terminal')
+def handle_start_terminal(_data) -> None:
+    """
+    Spawns an interactive shell session for the connected client and
+    streams stdout/stderr without race conditions or prompt hanging.
+
+        Socket event: 'start_terminal'
+    """
+
+    sid = request.sid
+
+    if sid in ACTIVE_TERMINALS:
+        try:
+            ACTIVE_TERMINALS[sid].terminate()
+        except OSError:
+            pass
+
+    shell_cmd = "cmd.exe" if os.name == "nt" else "bash"
+
+    try:
+        env = os.environ.copy()
+        env["PYTHONUNBUFFERED"] = "1"
+
+        # pylint: disable=consider-using-with
+        process = subprocess.Popen(
+            shell_cmd,
+            shell=True,
+            cwd=PROJ,
+            env=env,
+            stdout=subprocess.PIPE,
+            stderr=subprocess.STDOUT,
+            stdin=subprocess.PIPE,
+            text=True,
+            bufsize=0
+        )
+        ACTIVE_TERMINALS[sid] = process
+
+        def read_output():
+            """
+            Batches stdout characters into a queue and flushes them periodically
+            to prevent network packet scrambling while keeping prompts instant.
+            """
+
+            q = queue.Queue()
+
+            def reader_loop():
+                try:
+                    while True:
+                        char = process.stdout.read(1)
+                        if not char:
+                            break
+                        q.put(char)
+                except (OSError, ValueError):
+                    pass
+                finally:
+                    q.put(None)
+
+            threading.Thread(target=reader_loop, daemon=True).start()
+
+            buffer = []
+            try:
+                while True:
+                    try:
+                        # Wait up to 30ms for characters
+                        char = q.get(timeout=0.03)
+                        if char is None:
+                            break
+                        buffer.append(char)
+
+                        # Flush immediately on newline or if buffer gets full
+                        if char == '\n' or len(buffer) >= 32:
+                            socketio.emit('terminal_output',
+                                {'output': "".join(buffer)},
+                                room=sid)
+                            buffer.clear()
+                    except queue.Empty:
+                        # Flush partial text
+                        if buffer:
+                            socketio.emit('terminal_output',
+                                {'output': "".join(buffer)},
+                                room=sid)
+                            buffer.clear()
+            except (OSError, ValueError):
+                pass
+            finally:
+                if buffer:
+                    socketio.emit('terminal_output',
+                        {'output': "".join(buffer)},
+                        room=sid)
+                socketio.emit('terminal_output',
+                    {'output': '\n[Process exited]\n'},
+                    room=sid)
+                if sid in ACTIVE_TERMINALS:
+                    del ACTIVE_TERMINALS[sid]
+
+        threading.Thread(target=read_output, daemon=True).start()
+    except (OSError, ValueError, subprocess.SubprocessError) as e:
+        socketio.emit('terminal_output',
+            {'output': f'[Failed to start shell: {e}]\n'},
+            room=sid)
+
+@socketio.on('terminal_input')
+def handle_terminal_input(data) -> None:
+    """
+    Sends keystrokes/commands into the running shell process stdin.
+
+        Socket event: 'terminal_input' + payload:
+        {
+            "input": (str) text to feed into stdin
+        }
+    """
+
+    sid = request.sid
+    if sid in ACTIVE_TERMINALS and 'input' in data:
+        process = ACTIVE_TERMINALS[sid]
+        try:
+            process.stdin.write(data['input'])
+            process.stdin.flush()
+        except (OSError, ValueError) as e:
+            print(f"[!] Terminal input error: {e}")
 
 # MySQL
 

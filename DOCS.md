@@ -28,6 +28,8 @@ As a developer, I, Faris, managed to keep the code mostly self-documenting. This
     - [user_left](#user_left)
     - [send_keystrokes](#send_keystrokes)
     - [broadcast_keystrokes](#broadcast_keystrokes)
+    - [start_terminal](#start_terminal)
+    - [terminal_input](#terminal_input)
 - [Server Security](#server-security)
 - [Code Cleanliness](#code-cleanliness)
 - [Choice of Licence](#choice-of-licence)
@@ -47,6 +49,7 @@ To provide a dedicated, multi-user collaborative remote development environment 
 - **[MySQL](https://dev.mysql.com/)**: Tracks active client sessions persistently.
   - `mysql-connector-python`: The underlying database driver.
 - **[python-dotenv](https://pypi.org/project/python-dotenv/)**: Secures environment configuration management.
+- **[Multithreading](https://docs.python.org/3/library/threading.html)**: To run multiple client terminal sessions
 
 ## Overview
 
@@ -343,6 +346,24 @@ Server $\rightarrow$ Client
 ```
 
 Relays the validated batch of keystrokes received from `send_keystrokes` to all other active participants in the workspace so they can render real-time collaborative edits.
+
+### `start_terminal`
+
+Server $\leftrightarrow $ Client
+
+Spawns an interactive shell session (command prompt on Windows, bash on Linux, etc.) mapped directly to the connected client's session ID (`sid`). It configures unbuffered standard output and spawns a background reader thread using a queue data structure to avoid race fragmentation with timed flushing to stream output securely without prompt hanging or packet interleaving.
+
+### `terminal_input`
+
+Client $\rightarrow$ Server
+
+```json
+{
+    "input": (str) text to feed into stdin
+}
+```
+
+Receives command text or keystrokes from the client IDE terminal and streams them directly into the standard input of that specific client's active persistent shell subprocess.
 
 ## Server Security
 

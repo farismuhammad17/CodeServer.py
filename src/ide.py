@@ -127,33 +127,85 @@ class CodeServerIDE:
 
     def toggle_theme(self) -> None:
         """
-        Toggles between dark and light themes and updates UI components dynamically.
+        Toggles between dark and light themes and updates all UI components dynamically
+        without resetting editor text or open file states.
         """
         self.is_dark_theme = not self.is_dark_theme
         self._apply_theme_colors()
 
-        # Re-configure styles and redraw components
+        # Update root and panes
         self.root.configure(bg=self.bg_main)
-        self._configure_styles()
+        if hasattr(self, 'main_paned'):
+            self.main_paned.config(bg=self.border_color)
+        if hasattr(self, 'right_paned'):
+            self.right_paned.config(bg=self.border_color)
 
-        # Rebuild layout to apply new color bindings across all widgets
-        for widget in self.root.winfo_children():
-            widget.destroy()
+        # Update sidebar and server tab components
+        if hasattr(self, 'sidebar_frame'):
+            self.sidebar_frame.config(bg=self.bg_sidebar)
 
-        self._build_layout()
+        # Update all children inside server_tab (like the Active Users label)
+        if hasattr(self, 'server_tab'):
+            for widget in self.server_tab.winfo_children():
+                if isinstance(widget, tk.Label):
+                    widget.config(bg=self.bg_sidebar, fg=self.fg_muted)
 
-        # Re-populate file tree if active
-        if self.server_url:
-            try:
-                response = requests.get(f"{self.server_url}/files", timeout=5)
-                if response.status_code == 200:
-                    self._populate_file_tree(response.json())
-            except Exception:
-                pass
+        if hasattr(self, 'users_listbox'):
+            self.users_listbox.config(bg=self.bg_input, fg=self.fg_light, selectbackground=self.accent_blue)
+        if hasattr(self, 'url_entry'):
+            self.url_entry.config(bg=self.bg_input, fg=self.fg_light, insertbackground=self.insert_bg)
 
-        # Re-apply current open file content if any
-        if self.current_file:
-            self.lbl_current_file.config(text=self.current_file, fg=self.fg_light)
+        # Update editor top bar & buttons
+        if hasattr(self, 'editor_container'):
+            self.editor_container.config(bg=self.bg_main)
+        if hasattr(self, 'editor_top_bar'):
+            self.editor_top_bar.config(bg=self.bg_top_bar)
+        if hasattr(self, 'lbl_current_file'):
+            self.lbl_current_file.config(bg=self.bg_top_bar, fg=self.fg_muted)
+        if hasattr(self, 'btn_save'):
+            self.btn_save.config(bg=self.bg_input, fg=self.fg_light, activebackground=self.bg_input, activeforeground=self.fg_light)
+        if hasattr(self, 'btn_theme_toggle'):
+            theme_btn_text = "Dark" if self.is_dark_theme else "Light"
+            self.btn_theme_toggle.config(text=theme_btn_text, bg=self.bg_input, fg=self.fg_light, activebackground=self.bg_input, activeforeground=self.fg_light)
+
+        # Update editor text area
+        if hasattr(self, 'editor'):
+            self.editor.config(
+                bg=self.editor_bg,
+                fg=self.editor_fg,
+                insertbackground=self.insert_bg,
+                selectbackground=self.select_bg
+            )
+
+        # Update terminal container, top bar, and text box
+        if hasattr(self, 'term_container'):
+            self.term_container.config(bg=self.term_bg)
+        if hasattr(self, 'term_top_bar'):
+            self.term_top_bar.config(bg=self.bg_sidebar)
+        if hasattr(self, 'lbl_term_title'):
+            self.lbl_term_title.config(bg=self.bg_sidebar, fg=self.fg_muted)
+        if hasattr(self, 'terminal'):
+            self.terminal.config(
+                bg=self.term_bg,
+                fg=self.term_fg,
+                insertbackground=self.insert_bg
+            )
+        if hasattr(self, 'cmd_entry'):
+            self.cmd_entry.config(
+                bg=self.bg_input,
+                fg=self.fg_light,
+                insertbackground=self.insert_bg
+            )
+
+        # Re-configure global ttk styles so Notebook tabs and Treeviews update instantly
+        style = ttk.Style()
+        style.configure("TNotebook", background=self.bg_sidebar, borderwidth=0, lightcolor=self.bg_sidebar, darkcolor=self.bg_sidebar)
+        style.configure("TNotebook.Tab", background=self.tab_bg, foreground=self.fg_muted)
+        style.map("TNotebook.Tab", background=[("selected", self.bg_main)], foreground=[("selected", self.fg_light)])
+        style.configure("Treeview", background=self.bg_sidebar, foreground=self.fg_light, fieldbackground=self.bg_sidebar)
+        style.configure("Treeview.Heading", background=self.tree_heading, foreground=self.fg_light)
+        style.configure("Server.TFrame", background=self.bg_sidebar)
+        style.configure("TFrame", background=self.bg_sidebar)
 
     def _configure_styles(self) -> None:
         """
@@ -177,15 +229,15 @@ class CodeServerIDE:
         """
         Builds and arranges the main split panes, sidebars, file trees, text editor, and terminal boxes.
         """
-        main_paned = tk.PanedWindow(
+        self.main_paned = tk.PanedWindow(
             self.root, orient=tk.HORIZONTAL, bg=self.border_color, sashwidth=4, bd=0
         )
-        main_paned.pack(fill=tk.BOTH, expand=True)
+        self.main_paned.pack(fill=tk.BOTH, expand=True)
 
-        sidebar_frame = tk.Frame(main_paned, bg=self.bg_sidebar, width=260)
-        main_paned.add(sidebar_frame, minsize=200)
+        self.sidebar_frame = tk.Frame(self.main_paned, bg=self.bg_sidebar, width=260)
+        self.main_paned.add(self.sidebar_frame, minsize=200)
 
-        self.notebook = ttk.Notebook(sidebar_frame)
+        self.notebook = ttk.Notebook(self.sidebar_frame)
         self.notebook.pack(fill=tk.BOTH, expand=True)
 
         self.explorer_tab = ttk.Frame(self.notebook)
@@ -219,24 +271,24 @@ class CodeServerIDE:
         self.users_listbox = tk.Listbox(self.server_tab, bg=self.bg_input, fg=self.fg_light, relief=tk.FLAT, font=("Consolas", 9), height=10)
         self.users_listbox.pack(fill=tk.BOTH, expand=True, padx=10, pady=(0, 10))
 
-        right_paned = tk.PanedWindow(
-            main_paned, orient=tk.VERTICAL, bg=self.border_color, sashwidth=4, bd=0
+        self.right_paned = tk.PanedWindow(
+            self.main_paned, orient=tk.VERTICAL, bg=self.border_color, sashwidth=4, bd=0
         )
-        main_paned.add(right_paned)
+        self.main_paned.add(self.right_paned)
 
-        editor_container = tk.Frame(right_paned, bg=self.bg_main)
+        self.editor_container = tk.Frame(self.right_paned, bg=self.bg_main)
 
-        editor_top_bar = tk.Frame(editor_container, bg=self.bg_top_bar, height=30)
-        editor_top_bar.pack(side=tk.TOP, fill=tk.X)
-        editor_top_bar.pack_propagate(False)
+        self.editor_top_bar = tk.Frame(self.editor_container, bg=self.bg_top_bar, height=30)
+        self.editor_top_bar.pack(side=tk.TOP, fill=tk.X)
+        self.editor_top_bar.pack_propagate(False)
 
         self.lbl_current_file = tk.Label(
-            editor_top_bar, text="", bg=self.bg_top_bar, fg=self.fg_muted, font=("Consolas", 9)
+            self.editor_top_bar, text="", bg=self.bg_top_bar, fg=self.fg_muted, font=("Consolas", 9)
         )
         self.lbl_current_file.pack(side=tk.LEFT, padx=10)
 
-        btn_save = tk.Button(
-            editor_top_bar,
+        self.btn_save = tk.Button(
+            self.editor_top_bar,
             text="Save",
             bg=self.bg_input,
             fg=self.fg_light,
@@ -246,12 +298,11 @@ class CodeServerIDE:
             font=("Consolas", 8),
             command=self.save_current_file,
         )
-        btn_save.pack(side=tk.RIGHT, padx=6, pady=4, ipadx=6)
+        self.btn_save.pack(side=tk.RIGHT, padx=6, pady=4, ipadx=6)
 
-        # Theme Toggle Button added to the top bar
-        theme_btn_text = "🌙 Dark" if self.is_dark_theme else "☀️ Light"
-        btn_theme_toggle = tk.Button(
-            editor_top_bar,
+        theme_btn_text = "Dark" if self.is_dark_theme else "Light"
+        self.btn_theme_toggle = tk.Button(
+            self.editor_top_bar,
             text=theme_btn_text,
             bg=self.bg_input,
             fg=self.fg_light,
@@ -261,10 +312,10 @@ class CodeServerIDE:
             font=("Consolas", 8),
             command=self.toggle_theme,
         )
-        btn_theme_toggle.pack(side=tk.RIGHT, padx=2, pady=4, ipadx=6)
+        self.btn_theme_toggle.pack(side=tk.RIGHT, padx=2, pady=4, ipadx=6)
 
         self.editor = tk.Text(
-            editor_container,
+            self.editor_container,
             bg=self.editor_bg,
             fg=self.editor_fg,
             insertbackground=self.insert_bg,
@@ -275,7 +326,6 @@ class CodeServerIDE:
         )
         self.editor.pack(fill=tk.BOTH, expand=True, padx=4, pady=4)
 
-        # Real-time event bindings for streaming keystrokes and cursor movements
         self.editor.bind("<KeyRelease>", self._on_editor_key_release)
         self.editor.bind("<ButtonRelease-1>", self._on_editor_cursor_move)
         self.editor.bind("<KeyRelease-Up>", self._on_editor_cursor_move)
@@ -283,26 +333,27 @@ class CodeServerIDE:
         self.editor.bind("<KeyRelease-Left>", self._on_editor_cursor_move)
         self.editor.bind("<KeyRelease-Right>", self._on_editor_cursor_move)
 
-        right_paned.add(editor_container, minsize=350)
+        self.right_paned.add(self.editor_container, minsize=350)
 
-        term_container = tk.Frame(right_paned, bg=self.term_bg)
+        self.term_container = tk.Frame(self.right_paned, bg=self.term_bg)
 
-        term_top_bar = tk.Frame(term_container, bg=self.bg_sidebar, height=26)
-        term_top_bar.pack(side=tk.TOP, fill=tk.X)
-        term_top_bar.pack_propagate(False)
+        self.term_top_bar = tk.Frame(self.term_container, bg=self.bg_sidebar, height=26)
+        self.term_top_bar.pack(side=tk.TOP, fill=tk.X)
+        self.term_top_bar.pack_propagate(False)
 
-        tk.Label(
-            term_top_bar, text="Terminal", bg=self.bg_sidebar, fg=self.fg_muted, font=("Consolas", 9)
-        ).pack(side=tk.LEFT, padx=10)
+        self.lbl_term_title = tk.Label(
+            self.term_top_bar, text="Terminal", bg=self.bg_sidebar, fg=self.fg_muted, font=("Consolas", 9)
+        )
+        self.lbl_term_title.pack(side=tk.LEFT, padx=10)
 
         self.cmd_entry = tk.Entry(
-            term_container, bg=self.bg_input, fg=self.fg_light, insertbackground=self.insert_bg, relief=tk.FLAT, font=("Consolas", 10)
+            self.term_container, bg=self.bg_input, fg=self.fg_light, insertbackground=self.insert_bg, relief=tk.FLAT, font=("Consolas", 10)
         )
         self.cmd_entry.pack(side=tk.BOTTOM, fill=tk.X, padx=6, pady=6, ipady=4)
         self.cmd_entry.bind("<Return>", self.execute_shell_command)
 
         self.terminal = tk.Text(
-            term_container,
+            self.term_container,
             bg=self.term_bg,
             fg=self.term_fg,
             insertbackground=self.insert_bg,
@@ -310,7 +361,7 @@ class CodeServerIDE:
             font=("Consolas", 10),
         )
         self.terminal.pack(fill=tk.BOTH, expand=True, padx=6, pady=4)
-        right_paned.add(term_container, minsize=140)
+        self.right_paned.add(self.term_container, minsize=140)
 
         self._setup_context_menu()
 
@@ -335,6 +386,10 @@ class CodeServerIDE:
         def on_broadcast_cursor(data):
             if data.get("file") == self.current_file:
                 self.root.after(0, lambda: self._render_remote_cursor(data))
+
+        @self.sio.on('terminal_output')
+        def on_terminal_output(data):
+            self.root.after(0, lambda: self._append_terminal(data.get("output", "")))
 
     def _refresh_users_list(self) -> None:
         """
@@ -475,6 +530,7 @@ class CodeServerIDE:
                 connect_url = f"{self.server_url}?uuid={self.client_uuid}&username={encoded_username}"
 
                 self.sio.connect(connect_url)
+                self.sio.emit('start_terminal', {})  # Spin up the persistent shell session on connect
                 self._refresh_users_list()
             else:
                 messagebox.showerror("Error", f"Code: {response.status_code}")
@@ -703,26 +759,25 @@ class CodeServerIDE:
 
     def execute_shell_command(self, event) -> None:
         """
-        Sends a shell command to the backend to run inside the project workspace.
+        Sends command text directly to the persistent interactive shell process via WebSocket
+        and echoes it locally in the terminal view.
         """
-        cmd = self.cmd_entry.get().strip()
-        if not cmd:
+        cmd = self.cmd_entry.get()
+        if not self.sio.connected:
+            messagebox.showwarning("Warning", "Not connected to server socket.")
             return
 
-        self.terminal.insert(tk.END, f"$ {cmd}\n")
+        # Echo the typed command locally so you can see what you wrote
+        self._append_terminal(f"{cmd}\n")
+
+        # Append newline so the remote shell executes the command
+        payload_input = cmd + "\n"
         self.cmd_entry.delete(0, tk.END)
 
-        def run_stream():
-            try:
-                url = f"{self.server_url}/cmd"
-                with requests.post(url, json={"command": cmd}, stream=True, timeout=60) as resp:
-                    for line in resp.iter_lines(decode_unicode=True):
-                        if line:
-                            self.terminal.after(0, self._append_terminal, line + "\n")
-            except Exception as e:
-                self.terminal.after(0, self._append_terminal, f"[Error: {e}]\n")
-
-        threading.Thread(target=run_stream, daemon=True).start()
+        try:
+            self.sio.emit('terminal_input', {'input': payload_input})
+        except Exception as e:
+            self._append_terminal(f"[Error sending input: {e}]\n")
 
     def _append_terminal(self, text: str) -> None:
         """
