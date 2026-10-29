@@ -618,7 +618,7 @@ def handle_keystrokes(data) -> None:
 
     # Validate each individual edit structure inside the batch
     for edit in edits:
-        if not isinstance(edit, dict) or                                     \
+        if not isinstance(edit, dict) or                                    \
             not all(k in edit for k in                                      \
                 ('file', 'row', 'column', 'keystroke')) or                  \
             not isinstance(edit['row'], int) or                             \
@@ -674,11 +674,14 @@ def handle_start_terminal(_data) -> None:
         shell_cmd = f"bash" # macOS terminal relies on strict cwd=PROJ
     else: # Linux / Posix compliant OSs
         if os.path.exists("/usr/bin/bwrap"):
+            lib64_arg = "--ro-bind /lib64 /lib64 " if os.path.exists("/lib64") else ""
+
             shell_cmd = (
                 f"bwrap "
                 f"--ro-bind /usr /usr "
+                f"--ro-bind /bin /bin "
                 f"--ro-bind /lib /lib "
-                f"--ro-bind /lib64 /lib64 "
+                f"{lib64_arg}"
                 f"--bind {PROJ} /app "
                 f"--chdir /app "
                 f"--proc /proc "

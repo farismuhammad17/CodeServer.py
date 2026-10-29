@@ -49,7 +49,8 @@ To provide a dedicated, multi-user collaborative remote development environment 
 - **[MySQL](https://dev.mysql.com/)**: Tracks active client sessions persistently.
   - `mysql-connector-python`: The underlying database driver.
 - **[python-dotenv](https://pypi.org/project/python-dotenv/)**: Secures environment configuration management.
-- **[Multithreading](https://docs.python.org/3/library/threading.html)**: To run multiple client terminal sessions
+- **[Multithreading](https://docs.python.org/3/library/threading.html)**: To run multiple client terminal sessions.
+- **[Bubblewrap](https://github.com/containers/bubblewrap)**: Client terminal subprocess container creation.
 
 ## Overview
 
