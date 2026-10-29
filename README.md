@@ -8,9 +8,13 @@
 
 *This project is a submission for the CBSE Class 12 Computer Science project by Faris Muhammad, Pavithra Muthukumar, and Mrinalika Rajan.*
 
-A pure Python project using a Flask backend to host a given project folder, automatically connecting the server using tailscale. The client is then able to connect to this server by the IDE, designed in Python's Tkinter, to access the files, folders, read files, write files, create directories, and, in essense, use the server folder as if it were on the client's computer.
+A Flask backend to host a given project folder, connected to WAN via tailscale, allowing clients to then be able to connect by an IDE, designed in Tkinter, to access the files, folders, read files, write files, create directories, etc., as if the server folder were on the client's computer.
 
-Each client is treated as a "user" stored inside a MySQL database. Changes by one user is reflected to other users on the same project connection.
+Each client is treated as a "user" stored inside a MySQL database. Changes by one user are reflected to other users on the same project connection. Changes are also buffered into a MySQL table mapping the file changed and the changes made (keystrokes at given row and column).
+
+When a client opens the file, the server returns the change buffer of that file. If a client saves the file, the buffer is cleared. The buffer cannot be entirely stored in RAM, since RAM is non-persistent. Changes can be stored on the client side, but it is impractical to do so. If the server goes down, the RAM goes, and data is lost. To minimize this, the data must be stored in a persistent manner, which MySQL provides.
+
+Refer [DOCS.md](./DOCS.md) for more information on the functionings.
 
 <table>
     <tr>
@@ -51,10 +55,6 @@ python src/ide.py
 
 # Todo
 
-* IDE was written mostly by LLMs. Should fix any minor code inconveniences.
-* If a user edits a file, and another user not previously viewing the file reads the file, they will not see the reflected changes of the first user.
-    * The server should likely store a dictionary buffer for every file for every keystroke made. When a user opens the file, the keystrokes are sent to this user from the server, and the user processes these changes.
-    * If a user saves a file, the file is saved, and the keystroke buffer on that file should be emptied.
 * Use the IDE terminal as client-server logs for communication ease.
     * Connection phase
     * User joining/leaving

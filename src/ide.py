@@ -52,13 +52,48 @@ class CodeServerIDE:
         self.sio = socketio.Client(logger=False, engineio_logger=False)
         self._setup_socket_events()
 
-        self.bg_main = "#1e1e1e"
-        self.bg_sidebar = "#252526"
-        self.bg_input = "#3c3c3c"
-        self.fg_light = "#cccccc"
-        self.fg_muted = "#858585"
-        self.accent_blue = "#007acc"
-        self.border_color = "#1e1e1e"
+        # Theme definitions (Dark theme by default)
+        self.is_dark_theme = True
+        self.themes = {
+            "dark": {
+                "bg_main": "#1e1e1e",
+                "bg_sidebar": "#252526",
+                "bg_input": "#3c3c3c",
+                "bg_top_bar": "#2d2d2d",
+                "fg_light": "#cccccc",
+                "fg_muted": "#858585",
+                "accent_blue": "#007acc",
+                "border_color": "#1e1e1e",
+                "editor_bg": "#1e1e1e",
+                "editor_fg": "#cccccc",
+                "select_bg": "#264f78",
+                "term_bg": "#111111",
+                "term_fg": "#4ec9b0",
+                "tree_heading": "#333333",
+                "tab_bg": "#2d2d2d",
+                "insert_bg": "white"
+            },
+            "light": {
+                "bg_main": "#ffffff",
+                "bg_sidebar": "#f3f3f3",
+                "bg_input": "#ffffff",
+                "bg_top_bar": "#e1e1e1",
+                "fg_light": "#333333",
+                "fg_muted": "#666666",
+                "accent_blue": "#0066cc",
+                "border_color": "#dcdcdc",
+                "editor_bg": "#ffffff",
+                "editor_fg": "#000000",
+                "select_bg": "#add6ff",
+                "term_bg": "#f8f8f8",
+                "term_fg": "#008000",
+                "tree_heading": "#e5e5e5",
+                "tab_bg": "#e1e1e1",
+                "insert_bg": "black"
+            }
+        }
+
+        self._apply_theme_colors()
 
         self.root.configure(bg=self.bg_main)
         self._configure_styles()
@@ -68,21 +103,73 @@ class CodeServerIDE:
         self.editor.bind("<Delete>", self._on_editor_delete)
         self.editor.bind("<Return>", self._on_editor_return)
 
+    def _apply_theme_colors(self) -> None:
+        """
+        Assigns color variables based on the active theme state.
+        """
+        t = self.themes["dark" if self.is_dark_theme else "light"]
+        self.bg_main = t["bg_main"]
+        self.bg_sidebar = t["bg_sidebar"]
+        self.bg_input = t["bg_input"]
+        self.bg_top_bar = t["bg_top_bar"]
+        self.fg_light = t["fg_light"]
+        self.fg_muted = t["fg_muted"]
+        self.accent_blue = t["accent_blue"]
+        self.border_color = t["border_color"]
+        self.editor_bg = t["editor_bg"]
+        self.editor_fg = t["editor_fg"]
+        self.select_bg = t["select_bg"]
+        self.term_bg = t["term_bg"]
+        self.term_fg = t["term_fg"]
+        self.tree_heading = t["tree_heading"]
+        self.tab_bg = t["tab_bg"]
+        self.insert_bg = t["insert_bg"]
+
+    def toggle_theme(self) -> None:
+        """
+        Toggles between dark and light themes and updates UI components dynamically.
+        """
+        self.is_dark_theme = not self.is_dark_theme
+        self._apply_theme_colors()
+
+        # Re-configure styles and redraw components
+        self.root.configure(bg=self.bg_main)
+        self._configure_styles()
+
+        # Rebuild layout to apply new color bindings across all widgets
+        for widget in self.root.winfo_children():
+            widget.destroy()
+
+        self._build_layout()
+
+        # Re-populate file tree if active
+        if self.server_url:
+            try:
+                response = requests.get(f"{self.server_url}/files", timeout=5)
+                if response.status_code == 200:
+                    self._populate_file_tree(response.json())
+            except Exception:
+                pass
+
+        # Re-apply current open file content if any
+        if self.current_file:
+            self.lbl_current_file.config(text=self.current_file, fg=self.fg_light)
+
     def _configure_styles(self) -> None:
         """
-        Configures global ttk widget styles to match the dark theme aesthetic.
+        Configures global ttk widget styles to match active theme aesthetic.
         """
         style = ttk.Style()
         style.theme_use("clam")
 
         style.configure("TNotebook", background=self.bg_sidebar, borderwidth=0, lightcolor=self.bg_sidebar, darkcolor=self.bg_sidebar)
-        style.configure("TNotebook.Tab", background="#2d2d2d", foreground=self.fg_muted, padding=[10, 5], font=("Consolas", 9))
+        style.configure("TNotebook.Tab", background=self.tab_bg, foreground=self.fg_muted, padding=[10, 5], font=("Consolas", 9))
         style.map("TNotebook.Tab",
                   background=[("selected", self.bg_main)],
-                  foreground=[("selected", "#ffffff")])
+                  foreground=[("selected", self.fg_light)])
 
         style.configure("Treeview", background=self.bg_sidebar, foreground=self.fg_light, fieldbackground=self.bg_sidebar, borderwidth=0, font=("Consolas", 10))
-        style.configure("Treeview.Heading", background="#333333", foreground=self.fg_light, font=("Consolas", 9))
+        style.configure("Treeview.Heading", background=self.tree_heading, foreground=self.fg_light, font=("Consolas", 9))
 
         style.configure("Server.TFrame", background=self.bg_sidebar)
 
@@ -111,7 +198,7 @@ class CodeServerIDE:
         self.server_tab = ttk.Frame(self.notebook, style="Server.TFrame")
         self.notebook.add(self.server_tab, text="Server")
 
-        self.url_entry = tk.Entry(self.server_tab, bg=self.bg_input, fg=self.fg_light, insertbackground="white", relief=tk.FLAT, font=("Consolas", 10))
+        self.url_entry = tk.Entry(self.server_tab, bg=self.bg_input, fg=self.fg_light, insertbackground=self.insert_bg, relief=tk.FLAT, font=("Consolas", 10))
         self.url_entry.insert(0, "http://localhost:5000")
         self.url_entry.pack(anchor=tk.W, fill=tk.X, padx=10, pady=(15, 0), ipady=4)
 
@@ -120,7 +207,7 @@ class CodeServerIDE:
             text="Connect",
             bg=self.accent_blue,
             fg="white",
-            activebackground="#1c97ea",
+            activebackground=self.accent_blue,
             activeforeground="white",
             relief=tk.FLAT,
             font=("Consolas", 9),
@@ -139,34 +226,49 @@ class CodeServerIDE:
 
         editor_container = tk.Frame(right_paned, bg=self.bg_main)
 
-        editor_top_bar = tk.Frame(editor_container, bg="#2d2d2d", height=30)
+        editor_top_bar = tk.Frame(editor_container, bg=self.bg_top_bar, height=30)
         editor_top_bar.pack(side=tk.TOP, fill=tk.X)
         editor_top_bar.pack_propagate(False)
 
         self.lbl_current_file = tk.Label(
-            editor_top_bar, text="", bg="#2d2d2d", fg=self.fg_muted, font=("Consolas", 9)
+            editor_top_bar, text="", bg=self.bg_top_bar, fg=self.fg_muted, font=("Consolas", 9)
         )
         self.lbl_current_file.pack(side=tk.LEFT, padx=10)
 
         btn_save = tk.Button(
             editor_top_bar,
             text="Save",
-            bg="#3c3c3c",
+            bg=self.bg_input,
             fg=self.fg_light,
-            activebackground="#505050",
-            activeforeground="white",
+            activebackground=self.bg_input,
+            activeforeground=self.fg_light,
             relief=tk.FLAT,
             font=("Consolas", 8),
             command=self.save_current_file,
         )
         btn_save.pack(side=tk.RIGHT, padx=6, pady=4, ipadx=6)
 
+        # Theme Toggle Button added to the top bar
+        theme_btn_text = "🌙 Dark" if self.is_dark_theme else "☀️ Light"
+        btn_theme_toggle = tk.Button(
+            editor_top_bar,
+            text=theme_btn_text,
+            bg=self.bg_input,
+            fg=self.fg_light,
+            activebackground=self.bg_input,
+            activeforeground=self.fg_light,
+            relief=tk.FLAT,
+            font=("Consolas", 8),
+            command=self.toggle_theme,
+        )
+        btn_theme_toggle.pack(side=tk.RIGHT, padx=2, pady=4, ipadx=6)
+
         self.editor = tk.Text(
             editor_container,
-            bg=self.bg_main,
-            fg=self.fg_light,
-            insertbackground="white",
-            selectbackground="#264f78",
+            bg=self.editor_bg,
+            fg=self.editor_fg,
+            insertbackground=self.insert_bg,
+            selectbackground=self.select_bg,
             relief=tk.FLAT,
             undo=True,
             font=("Consolas", 11),
@@ -183,27 +285,27 @@ class CodeServerIDE:
 
         right_paned.add(editor_container, minsize=350)
 
-        term_container = tk.Frame(right_paned, bg="#111111")
+        term_container = tk.Frame(right_paned, bg=self.term_bg)
 
-        term_top_bar = tk.Frame(term_container, bg="#252526", height=26)
+        term_top_bar = tk.Frame(term_container, bg=self.bg_sidebar, height=26)
         term_top_bar.pack(side=tk.TOP, fill=tk.X)
         term_top_bar.pack_propagate(False)
 
         tk.Label(
-            term_top_bar, text="Terminal", bg="#252526", fg=self.fg_muted, font=("Consolas", 9)
+            term_top_bar, text="Terminal", bg=self.bg_sidebar, fg=self.fg_muted, font=("Consolas", 9)
         ).pack(side=tk.LEFT, padx=10)
 
         self.cmd_entry = tk.Entry(
-            term_container, bg="#1e1e1e", fg=self.fg_light, insertbackground="white", relief=tk.FLAT, font=("Consolas", 10)
+            term_container, bg=self.bg_input, fg=self.fg_light, insertbackground=self.insert_bg, relief=tk.FLAT, font=("Consolas", 10)
         )
         self.cmd_entry.pack(side=tk.BOTTOM, fill=tk.X, padx=6, pady=6, ipady=4)
         self.cmd_entry.bind("<Return>", self.execute_shell_command)
 
         self.terminal = tk.Text(
             term_container,
-            bg="#111111",
-            fg="#4ec9b0",
-            insertbackground="white",
+            bg=self.term_bg,
+            fg=self.term_fg,
+            insertbackground=self.insert_bg,
             relief=tk.FLAT,
             font=("Consolas", 10),
         )
@@ -307,7 +409,10 @@ class CodeServerIDE:
         try:
             res = requests.post(f"{self.server_url}/new/file", params={"file": full_path}, json={"content": ""}, timeout=5)
             if res.status_code in [200, 201]:
-                self.connect_to_server()
+                # Just refresh the file tree instead of calling connect_to_server()
+                response = requests.get(f"{self.server_url}/files", timeout=5)
+                if response.status_code == 200:
+                    self._populate_file_tree(response.json())
             else:
                 messagebox.showerror("Error", "Failed.")
         except requests.exceptions.RequestException as e:
@@ -328,7 +433,10 @@ class CodeServerIDE:
         try:
             res = requests.post(f"{self.server_url}/new/folder", params={"folder": full_path}, timeout=5)
             if res.status_code in [200, 201]:
-                self.connect_to_server()
+                # Just refresh the file tree instead of calling connect_to_server()
+                response = requests.get(f"{self.server_url}/files", timeout=5)
+                if response.status_code == 200:
+                    self._populate_file_tree(response.json())
             else:
                 messagebox.showerror("Error", "Failed.")
         except requests.exceptions.RequestException as e:
@@ -362,7 +470,7 @@ class CodeServerIDE:
                 if self.sio.connected:
                     self.sio.disconnect()
 
-                # URL-encode parameters to cleanly handle spaces in full names (e.g., "Faris Muhammad Nissam")
+                # URL-encode parameters to cleanly handle spaces in full names
                 encoded_username = quote(self.username)
                 connect_url = f"{self.server_url}?uuid={self.client_uuid}&username={encoded_username}"
 
@@ -393,7 +501,8 @@ class CodeServerIDE:
 
     def _on_file_double_click(self, event) -> None:
         """
-        Handles double clicks on file explorer tree items to load files into the editor.
+        Handles double clicks on file explorer tree items to load files into the editor
+        and applies any accumulated real-time keystroke buffers from the server.
         """
         selected_item = self.tree.selection()
         if not selected_item:
@@ -402,16 +511,22 @@ class CodeServerIDE:
         if not file_path:
             return
 
-        rel_path = file_path[0]
+        rel_path = file_path[0].lstrip('/\\')
         try:
             response = requests.get(f"{self.server_url}/read", params={"file": rel_path}, timeout=5)
             if response.status_code == 200:
                 data = response.json()
-                self.current_file = data["file"]
+                self.current_file = data["file"].lstrip('/\\')
                 self.lbl_current_file.config(text=self.current_file, fg=self.fg_light)
 
                 self.editor.delete("1.0", tk.END)
                 self.editor.insert("1.0", data["content"])
+
+                buff_res = requests.get(f"{self.server_url}/keystrokes", params={"file": self.current_file}, timeout=5)
+                if buff_res.status_code == 200:
+                    edits = buff_res.json()
+                    if edits:
+                        self._apply_remote_edits(edits)
             else:
                 messagebox.showerror("Error", "Read failed.")
         except requests.exceptions.RequestException as e:
@@ -486,18 +601,15 @@ class CodeServerIDE:
 
             try:
                 if char == "\b":
-                    # Backspace: delete character *behind* the cursor (col - 1 to col)
                     if col > 0:
                         start_idx = f"{row}.{col-1}"
                         end_idx = f"{row}.{col}"
                         self.editor.delete(start_idx, end_idx)
                 elif char == "\x7f":
-                    # Delete: delete character *ahead* of the cursor (col to col + 1)
                     start_idx = f"{row}.{col}"
                     end_idx = f"{row}.{col+1}"
                     self.editor.delete(start_idx, end_idx)
                 else:
-                    # Regular character or newline insertion
                     if char:
                         target_idx = f"{row}.{col}"
                         self.editor.insert(target_idx, char)
@@ -518,7 +630,7 @@ class CodeServerIDE:
                     "file": self.current_file,
                     "row": row,
                     "column": col,
-                    "keystroke": "\b"  # Use backspace character or a flag
+                    "keystroke": "\b"
                 }]
             }
             self.sio.emit('send_keystrokes', payload)
@@ -539,7 +651,7 @@ class CodeServerIDE:
                     "file": self.current_file,
                     "row": row,
                     "column": col,
-                    "keystroke": "\x7f"  # Standard ASCII code for Delete (DEL)
+                    "keystroke": "\x7f"
                 }]
             }
             self.sio.emit('send_keystrokes', payload)

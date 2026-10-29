@@ -1,19 +1,36 @@
-*This documentation is still unfinished*
-
 # CodeServer.py Documentation
 
 CodeServer.py is a client-server application designed to simplify collaborative project development across multiple developers. A single host device, containing the actual files and folders of the project, runs the server application, which establishes the necessary REST API endpoints and WebSockets. Clients can then connect to the server to interact with the remote project workspace as if it were present locally on their own machines.
 
-As a developer, I, Faris, managed to keep the code mostly self-documenting. This file serves to provide a structured, step-by-step explanation towards this project, doubling as the project report.
+As a developer, I, Faris, managed to keep the code mostly self-documenting. This file serves to provide a structured, step-by-step explanation towards this project, doubling *(kind of)* as the project report.
 
 - [Aim](#aim)
 - [Technologies Used](#technologies-used)
 - [Overview](#overview)
-  - [Use of API Endpoints](#use-of-api-endpoints)
-  - [Use of WebSockets](#use-of-websockets)
+    - [Use of API Endpoints](#use-of-api-endpoints)
+    - [Use of WebSockets](#use-of-websockets)
 - [Satisfying Requirements](#satisfying-requirements)
 - [Environment Variables](#environment-variables)
 - [MySQL Database Schema](#mysql-database-schema)
+- [Server API endpoints](#server-api-endpoints)
+    - [/](#root-)
+    - [/read](#read)
+    - [/files](#files)
+    - [/save](#save)
+    - [/new/file](#newfile)
+    - [/new/folder](#newfolder)
+    - [/cmd](#cmd)
+    - [/users](#users)
+    - [/keystrokes](#keystrokes)
+- [Server WebSocket endpoints](#server-websocket-endpoints)
+    - [Connection & Handshake](#connection--handshake)
+    - [user_join](#user_join)
+    - [user_left](#user_left)
+    - [send_keystrokes](#send_keystrokes)
+    - [broadcast_keystrokes](#broadcast_keystrokes)
+- [Server Security](#server-security)
+- [Code Cleanliness](#code-cleanliness)
+- [Choice of Licence](#choice-of-licence)
 
 ## Aim
 
@@ -74,7 +91,17 @@ On boot, the server initialises a database (if it does not already exist) and en
 | `sid` | `VARCHAR(255)` | YES | | `NULL` | |
 | `connected_at` | `TIMESTAMP` | YES | | `CURRENT_TIMESTAMP` | ON UPDATE CURRENT_TIMESTAMP |
 
-The python `init_db` function, called upon boot, executes the following command.
+**Table Name:** `file_buffers`
+
+| Field | Type | Null | Key | Default | Extra |
+| :--- | :--- | :--- | :--- | :--- | :--- |
+| `id` | `int` | NO | PRI | `NULL` | `auto_increment` |
+| `file_path` | `VARCHAR(500)` | NO | | `NULL` | |
+| `keystroke` | `varchar(10)` | NO | | `NULL` | |
+| `row` | `int` | NO | | `NULL` | |
+| `col` | `int` | NO | | `NULL` | |
+
+These tables are created in the python `init_db` function, called upon boot, executes the following command.
 
 ```sql
 CREATE DATABASE IF NOT EXISTS codeserver_db;
@@ -86,12 +113,253 @@ CREATE TABLE IF NOT EXISTS active_clients (
     sid VARCHAR(255),
     connected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
 );
+
+CREATE TABLE IF NOT EXISTS file_buffers (
+    id INT AUTO_INCREMENT PRIMARY KEY,
+    file_path VARCHAR(500) NOT NULL,
+    keystroke VARCHAR(10) NOT NULL,
+    `row` INT NOT NULL,
+    `col` INT NOT NULL
+);
 ```
 
 ## Server API endpoints
 
-## Server boot configurations
+To allow the clients to communicate with the server, it opens up API endpoints for the clients to get and send data through.
+
+### ROOT `/`
+
+```
+GET /
+
+Response format:
+    (str) info_text, (int) RESPONSE_CODE
+```
+
+If a user tries to paste the server address into a browser or any other software without passing another API, the server responses with the following text, which is useful to test if the server is alive or not, or to provide clients with necessary instructions on acquiring the IDE code.
+
+```
+This application is powered by CodeServer.py
+--------------------------------------------------
+Repository & Documentation:
+https://github.com/farismuhammad17/CodeServer.py
+```
+
+### `/read`
+
+```
+GET /read?file=path/to/file
+
+Response format:
+    (tuple) ({
+        'file': (str) path/to/file,
+        'content': (str) file content
+    }, (int) RESPONSE_CODE)
+```
+
+Reads and returns the contents of a specified file from the project directory.
+
+### `/files`
+
+```
+GET /files
+
+Response format:
+    (tuple) ([
+        (str) path/to/file_or_directory,
+        ...
+    ], (int) RESPONSE_CODE)
+```
+
+Retrieves a sorted, recursive list of all files and directories in the project workspace, with directories listed before files.
+
+### `/save`
+
+```
+POST /save + payload:
+{
+    "filename": "path/to/file",
+    "content": "file content"
+}
+
+Response format:
+    (tuple) ({
+        "status": (str),
+        "message": (str)
+    }, (int) RESPONSE_CODE)
+```
+
+Saves or overwrites text content to an existing file in the project workspace and clears its keystroke buffer.
+
+### `/new/file`
+
+```
+POST /new/file?file=path/to/newfile + payload:
+{
+    "content": "initial file content"
+}
+
+Response body:
+    (tuple) ({
+        "status": (str),
+        "message": (str)
+    }, (int) RESPONSE_CODE)
+```
+
+Creates a new file at the specified relative path, auto-creating missing parent directories.
+
+### `/new/folder`
+
+```
+POST /new/folder?folder=path/to/newfolder
+
+Response body:
+    (tuple) ({
+        "status": (str),
+        "message": (str)
+    }, (int) RESPONSE_CODE)
+```
+
+Creates a new directory (and any necessary parent directories) within the project workspace.
+
+### `/cmd`
+
+```
+POST /cmd + payload:
+{
+    "command": "your_shell_command"
+}
+
+Response body:
+    (tuple) (streamed command output, (int) RESPONSE_CODE)
+```
+
+Executes a shell command within the project workspace directory and streams the output.
+
+### `/users`
+
+```
+GET /users
+
+Response format:
+    (tuple) ([
+        (str) username,
+        ...
+    ], (int) RESPONSE_CODE)
+```
+
+Retrieves a list of all active usernames currently connected to the server.
+
+### `/keystrokes`
+
+```
+GET /keystrokes?file=path/to/file
+
+Response format:
+    (tuple) ([
+        {
+            "file": (str),
+            "keystroke": (str),
+            "row": (int),
+            "column": (int)
+        },
+        ...
+    ], (int) RESPONSE_CODE)
+```
+
+Retrieves all un-saved keystrokes for a specified file from MySQL.
+
+## Server WebSocket endpoints
+
+To allow real-time collaboration (such as user presence and live keystroke sharing), the server uses Socket.IO. Clients can connect to the root namespace and listen to or emit specific events.
+
+### Connection & Handshake
+
+```
+Connection URL: ws://<server_ip>:<port>
+Query Parameters:
+    {
+        "username": (str) user's display name,
+        "uuid": (str) unique client identifier
+    }
+```
+
+Clients must provide both a `username` and a `uuid` as query parameters during the connection handshake. If either is missing, the connection is immediately rejected.
+
+### `user_join`
+
+Server $\rightarrow$ Client
+
+```json
+{
+    "username": (str)
+}
+```
+
+Broadcasted to all *other* connected clients when a new user successfully completes the handshake and joins the workspace.
+
+### `user_left`
+
+Server $\rightarrow$ Client
+
+```json
+{
+    "username": (str)
+}
+```
+
+Broadcasted to all remaining clients when a user disconnects from the server, announcing their departure.
+
+### `send_keystrokes`
+
+Client $\rightarrow$ Server
+
+```json
+{
+    "file": (str) path/to/file.py,
+    "edits": [
+        {
+            "file": (str),
+            "row": (int),
+            "column": (int),
+            "keystroke": (str)
+        },
+        ...
+    ]
+}
+```
+
+Sent by a client when typing or making edits. The server validates the file path and individual edits against the workspace, records un-saved keystrokes into the MySQL `file_buffers` table, and broadcasts the batch to other peers.
+
+### `broadcast_keystrokes`
+
+Server $\rightarrow$ Client
+
+```json
+{
+    "file": (str) path/to/file.py,
+    "edits": [...]
+}
+```
+
+Relays the validated batch of keystrokes received from `send_keystrokes` to all other active participants in the workspace so they can render real-time collaborative edits.
+
+## Server Security
+
+Since the clients are able to access server files via the API, nothing is stopping any user from accessing the following:
+
+```
+/read?file=../../../../../../../../etc/passwd
+```
+
+If the server was running on Linux, this would print out the every password on the server machine. This is obviously a vulnerability, accounted for by the `is_path_safe` function, which makes sure that any endpoint accesses do **not** let the user past the project chosen at server boot.
 
 ## Code Cleanliness
 
-## Choice of License
+A "Linter", a special software designed to maintain a "code standard" a default cleanliness measures, was used during the creation of the server code. Namely, pylint, whose configurations are mentioned inside the [`.pylintrc`](./.pylintrc) file.
+
+## Choice of Licence
+
+Besides the explicit patent guarantee clause, legal clarity, and trademark protection that makes Apache 2.0 a great programmer's license, we chose it because it places accountability on specific shoulders. The program is delivered "as-is", and, since this is a simple proof-of-concept work, *all* accountability of data loss or server hackings are placed upon the user of this source code.
+
+This obviously does not imply that the code is terrible, misconfigured, or prone to errors. We have tried to fix as much errors as we could find, patch as much vulnerabilities as we could think of, and have written these files with love.

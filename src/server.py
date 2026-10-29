@@ -206,50 +206,48 @@ def api_files() -> tuple[Response, int]:
         ], (int) RESPONSE_CODE)
     """
 
-    ignored = {'.csignore'}
-    ignore_path = os.path.join(PROJ, '.csignore')
-    if os.path.exists(ignore_path) and os.path.isfile(ignore_path):
+    def load_ignore_patterns() -> set:
+        """Loads ignore patterns from .csignore if present."""
+
+        ignored = {'.csignore'}
+        ignore_path = os.path.join(PROJ, '.csignore')
+        if not os.path.exists(ignore_path) or not os.path.isfile(ignore_path):
+            return ignored
         try:
             with open(ignore_path, 'r', encoding='utf-8') as f:
                 for line in f:
                     cleaned = line.strip()
-                    if not cleaned or cleaned.startswith('#'):
-                        continue
-                    pattern = cleaned.rstrip('/\\')
-                    if pattern:
-                        ignored.add(pattern)
+                    if cleaned and not cleaned.startswith('#'):
+                        pattern = cleaned.rstrip('/\\')
+                        if pattern:
+                            ignored.add(pattern)
         except (OSError, UnicodeDecodeError) as e:
             print(f"[!] Error on .csignore: {e}")
+        return ignored
 
-    dir_list  = []
-    file_list = []
+    ignored = load_ignore_patterns()
+    dir_list, file_list = [], []
 
-    # Helper to check if a name or relative path matches ignore patterns
     def is_ignored(name: str, current_rel_root: str) -> bool:
         rel_path = os.path.join(current_rel_root, name).replace('\\', '/')
         return name in ignored or rel_path in ignored or any(
-            rel_path.startswith(pattern + '/') or rel_path == pattern
-            for pattern in ignored
+            rel_path.startswith(p + '/') or rel_path == p for p in ignored
         )
 
     for root, dirs, files in os.walk(PROJ):
-        rel_root = os.path.relpath(root, PROJ)
-        if rel_root == '.':
-            rel_root = ''
-
+        rel_root = '' if os.path.relpath(root, PROJ) == '.' \
+            else os.path.relpath(root, PROJ)
         dirs[:] = [d for d in dirs if not is_ignored(d, rel_root)]
 
         for d in dirs:
             rel_path = os.path.join(rel_root, d).replace('\\', '/')
-            if is_ignored(d, rel_root):
-                continue
-            dir_list.append(rel_path)
+            if not is_ignored(d, rel_root):
+                dir_list.append(rel_path)
 
         for f in files:
             rel_path = os.path.join(rel_root, f).replace('\\', '/')
-            if is_ignored(f, rel_root):
-                continue
-            file_list.append(rel_path)
+            if not is_ignored(f, rel_root):
+                file_list.append(rel_path)
 
     return jsonify(sorted(dir_list) + sorted(file_list)), SUC_OK
 
@@ -257,7 +255,7 @@ def api_files() -> tuple[Response, int]:
 def api_save() -> tuple[Response, int]:
     """
     Saves or overwrites text content to an existing file in the
-    project workspace.
+    project workspace and clears its keystroke buffer.
 
         POST /save + payload:
         {
@@ -301,6 +299,18 @@ def api_save() -> tuple[Response, int]:
 
     with open(file_path, 'w', encoding='utf-8') as f:
         f.write(content)
+
+    # Clear keystrokes buffer for this file upon saving
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        cursor.execute("DELETE FROM file_buffers WHERE file_path = %s;",
+            (filename.lstrip('/\\'),))
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except sql.Error:
+        pass
 
     return jsonify({
         "status": "success",
@@ -451,6 +461,48 @@ def api_users() -> tuple[Response, int]:
 
     return jsonify(usernames), SUC_OK
 
+@app.route('/keystrokes', methods=['GET'])
+def api_keystrokes() -> tuple[Response, int]:
+    """
+    Retrieves all un-saved keystrokes for a specified file from MySQL.
+
+        GET /keystrokes?file=path/to/file
+
+    Response format:
+        (tuple) ([
+            {
+                "file": (str),
+                "keystroke": (str),
+                "row": (int),
+                "column": (int)
+            },
+            ...
+        ], (int) RESPONSE_CODE)
+    """
+
+    file = request.args.get('file')
+    if not file:
+        return jsonify([]), ERR_BAD_REQUEST
+
+    file_rel = file.lstrip('/\\')
+    path = os.path.normpath(os.path.join(PROJ, file_rel))
+
+    if not is_path_safe(path):
+        return jsonify([]), ERR_BAD_REQUEST
+
+    conn = get_db_connection()
+    cursor = conn.cursor(dictionary=True)
+    cursor.execute(
+        "SELECT file_path AS file, keystroke, `row`, `col` AS `column` "
+        "FROM file_buffers WHERE file_path = %s;",
+        (file_rel,)
+    )
+    edits = cursor.fetchall()
+    cursor.close()
+    conn.close()
+
+    return jsonify(edits), SUC_OK
+
 # Sockets
 
 @socketio.on('connect')
@@ -484,7 +536,7 @@ def handle_connect() -> bool:
     cursor.execute(
         "INSERT INTO active_clients (client_uuid, username, sid) "
                             "VALUES (%s, %s, %s) "
-        "ON DUPLICATE KEY UPDATE username = %s, sid = %s;",
+                            "ON DUPLICATE KEY UPDATE username = %s, sid = %s;",
         (client_uuid, username, sid, username, sid)
     )
     conn.commit()
@@ -560,9 +612,10 @@ def handle_keystrokes(data) -> None:
     if not isinstance(data, dict) or 'file' not in data or 'edits' not in data:
         return
 
-    # Verify that the target file exists
-    file_path = os.path.join(PROJ, data['file'])
-    if not os.path.exists(file_path) or \
+    file_rel = data['file'].lstrip('/\\')
+    file_path = os.path.normpath(os.path.join(PROJ, file_rel))
+
+    if not os.path.exists(file_path) or  \
         not os.path.isfile(file_path) or \
         not is_path_safe(file_path):
         return
@@ -574,13 +627,28 @@ def handle_keystrokes(data) -> None:
 
     # Validate each individual edit structure inside the batch
     for edit in edits:
-        if not isinstance(edit, dict) or                                       \
-            not all(k in edit for k in                                         \
-                ('file', 'row', 'column', 'keystroke')) or                     \
-            not isinstance(edit['row'], int) or                                \
-            not isinstance(edit['column'], int) or                             \
-            not isinstance(edit['keystroke'], str) or                          \
+        if not isinstance(edit, dict) or                                     \
+            not all(k in edit for k in                                      \
+                ('file', 'row', 'column', 'keystroke')) or                  \
+            not isinstance(edit['row'], int) or                             \
+            not isinstance(edit['column'], int) or                          \
+            not isinstance(edit['keystroke'], str) or                       \
             edit['row'] < 0 or edit['column'] < 0: return
+
+    try:
+        conn = get_db_connection()
+        cursor = conn.cursor()
+        for edit in edits:
+            cursor.execute(
+                "INSERT INTO file_buffers (file_path, keystroke, `row`, `col`) "
+                "VALUES (%s, %s, %s, %s);",
+                (file_rel, edit['keystroke'], edit['row'], edit['column'])
+            )
+        conn.commit()
+        cursor.close()
+        conn.close()
+    except sql.Error:
+        pass
 
     emit('broadcast_keystrokes', data,
         broadcast=True,
@@ -590,8 +658,8 @@ def handle_keystrokes(data) -> None:
 
 def init_db() -> None:
     """
-    Initializes the MySQL database and the 'active_clients' table
-    using a persistent client_uuid primary key.
+    Initializes the MySQL database and the required tables
+    including 'active_clients' and 'file_buffers'.
     """
 
     conn = sql.connect(
@@ -600,6 +668,7 @@ def init_db() -> None:
         password=DB_CONFIG['password']
     )
     cursor = conn.cursor()
+
     cursor.execute(f"CREATE DATABASE IF NOT EXISTS {DB_CONFIG['database']};")
     cursor.execute(f"USE {DB_CONFIG['database']};")
     cursor.execute("""
@@ -610,6 +679,16 @@ def init_db() -> None:
             connected_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP ON UPDATE CURRENT_TIMESTAMP
         );
     """)
+    cursor.execute("""
+        CREATE TABLE IF NOT EXISTS file_buffers (
+            id INT AUTO_INCREMENT PRIMARY KEY,
+            file_path VARCHAR(500) NOT NULL,
+            keystroke VARCHAR(10) NOT NULL,
+            `row` INT NOT NULL,
+            `col` INT NOT NULL
+        );
+    """)
+
     conn.commit()
     cursor.close()
     conn.close()
