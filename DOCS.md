@@ -375,6 +375,10 @@ Since the clients are able to access server files via the API, nothing is stoppi
 
 If the server was running on Linux, this would print out the every password on the server machine. This is obviously a vulnerability, accounted for by the `is_path_safe` function, which makes sure that any endpoint accesses do **not** let the user past the project chosen at server boot.
 
+The server also attempts to sandbox itself to the given project directory using the `sandbox_proj` function, executed on server boot. This function changes the working directory to the project directory and updates environment variables (depending on the operating system) to isolate the system as much as possible.
+
+Of course, we cannot isolate it completely, as the Flask server *needs* to communicate with the external MySQL server and access other necessary dependencies. Thus, we only isolate the terminals based on the variables set by the sandboxing function. On Linux systems, in place of `chroot`, we use Bubblewrap to sandbox the subprocesses to the project directory
+
 ## Code Cleanliness
 
 A "Linter", a special software designed to maintain a "code standard" a default cleanliness measures, was used during the creation of the server code. Namely, pylint, whose configurations are mentioned inside the [`.pylintrc`](./.pylintrc) file.

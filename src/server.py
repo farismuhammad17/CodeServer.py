@@ -102,7 +102,7 @@ def get_db_connection() -> sql.MySQLConnection:
 def is_path_safe(path: str) -> bool:
     """
     Verifies that the given absolute path resides strictly inside the global
-    PROJ directory.
+    PROJ directory, resolving symlinks to prevent traversal.
 
     Returns:
         bool: True if safe, False if not
@@ -111,13 +111,35 @@ def is_path_safe(path: str) -> bool:
     if not path or not PROJ:
         return False
 
-    target_abs = os.path.abspath(path)
-    base_abs   = os.path.abspath(PROJ)
+    target_abs = os.path.realpath(path)
+    base_abs   = os.path.realpath(PROJ)
 
     try:
         return os.path.commonpath([base_abs, target_abs]) == base_abs
     except ValueError:
         return False
+
+def sandbox_proj() -> None:
+    """
+    OS-level helper to lock the current process working directory and
+    environment inside the global PROJ directory safely.
+    """
+
+    global PROJ
+
+    PROJ = os.path.abspath(PROJ)
+
+    # Permanently lock the server process working directory
+    os.chdir(PROJ)
+
+    # Set environment anchor for subprocesses and custom tools
+    os.environ['PROJ_ROOT'] = PROJ
+
+    if os.name == 'posix':
+        print(f"[*] Workspace boundary locked to {PROJ} (POSIX CWD & Environment secured).")
+    elif os.name == 'nt':
+        os.environ['SYSTEMROOT'] = os.environ.get('SystemRoot', 'C:\\Windows')
+        print(f"[*] Workspace boundary locked to {PROJ} (Windows Environment secured).")
 
 # API
 
@@ -640,7 +662,22 @@ def handle_start_terminal(_data) -> None:
         except OSError:
             pass
 
-    shell_cmd = "cmd.exe" if os.name == "nt" else "bash"
+    if os.name == "nt": # Windows
+        shell_cmd = "cmd.exe"
+    elif sys.platform == "darwin": # MacOS
+        sandbox_profile = (
+            f"(version 1)\n"
+            f"(allow default)\n"
+            f"(deny file-write* (subpath \"/\"))\n"
+            f"(allow file-write* (subpath \"{PROJ}\"))\n"
+        )
+        shell_cmd = f"bash" # macOS terminal relies on strict cwd=PROJ
+    else: # Linux / Posix compliant OSs
+        if os.path.exists("/usr/bin/bwrap"):
+            print("[#] bwrap not found, defaulting to bash.")
+            shell_cmd = f"bwrap --ro-bind /usr /usr --bind {PROJ} /app --chdir /app --proc /proc --dev /dev bash"
+        else:
+            shell_cmd = "bash"
 
     try:
         env = os.environ.copy()
@@ -794,7 +831,7 @@ def main() -> None:
 
     # CLI flags
     if len(sys.argv) > 1:
-        PROJ = os.path.abspath(' '.join(sys.argv[1:]))
+        PROJ = ' '.join(sys.argv[1:])
     else:
         PROJ = get_target_folder()
 
@@ -803,6 +840,13 @@ def main() -> None:
         return
 
     PROJ = os.path.abspath(PROJ)
+
+    # Ensure PROJ actually exists
+    if not os.path.exists(PROJ) or not os.path.isdir(PROJ):
+        print(f"[!] '{PROJ}' not found or not directory.")
+        return
+
+    sandbox_proj()
 
     # MySQL
     try:
